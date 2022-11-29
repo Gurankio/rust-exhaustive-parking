@@ -1,0 +1,21 @@
+6 6
+C down
+12
+A green
+B pink
+C red
+D dark_green
+E yellow
+F brown
+G blue
+H light_green
+I green
+J orange
+K white
+L ocra
+AABC**
+DDBC**
+EFGGHH
+EFIJJK
+**I**K
+*LLL*K
