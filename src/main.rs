@@ -97,7 +97,8 @@ impl FromStr for Color {
 
 impl Color {
     fn get_csi(&self) -> String {
-        format!("\x1b[38;2;{}m", match self {
+        #[cfg(feature = "color")]
+        return format!("\x1b[38;2;{}m", match self {
             Color::Red => "255;0;0",
             Color::Green => "138;226;52",
             Color::LightGreen => "0;255;0",
@@ -109,7 +110,9 @@ impl Color {
             Color::Orange => "255;165;0",
             Color::Brown => "150;75;0",
             Color::Ocra => "204;119;34",
-        })
+        });
+        #[cfg(not(feature = "color"))]
+        return "".to_string();
     }
 }
 
@@ -198,7 +201,7 @@ fn parse_input() -> Result<(usize, usize, char, Direction, BTreeMap<char, Vehicl
     Ok((w, h, tc, td, vehicles))
 }
 
-fn print_move(vehicles: &BTreeMap<char, Vehicle>, old: &Node, new: &Move, w: usize, h: usize) {
+fn print_move(vehicles: &BTreeMap<char, Vehicle>, old: &Move, new: &Node, w: usize, h: usize) {
     let fill_table = |state: &Node, table: &mut Vec<char>| {
         for vehicle in state {
             for i in 0..vehicle.length {
@@ -211,11 +214,11 @@ fn print_move(vehicles: &BTreeMap<char, Vehicle>, old: &Node, new: &Move, w: usi
         }
     };
 
-    let mut old_occupied = vec!['_'; w * h];
-    fill_table(old, &mut old_occupied);
-
     let mut new_occupied = vec!['_'; w * h];
-    fill_table(&new.node, &mut new_occupied);
+    fill_table(&old.node, &mut new_occupied);
+
+    let mut old_occupied = vec!['_'; w * h];
+    fill_table(new, &mut old_occupied);
 
     let render_id = |id: char| {
         let csi = vehicles.get(&id).map(|v| v.color).flatten().map(|c| c.get_csi()).unwrap_or("".to_string());
@@ -229,7 +232,7 @@ fn print_move(vehicles: &BTreeMap<char, Vehicle>, old: &Node, new: &Move, w: usi
     };
 
     for i in 0..h {
-        print_row(&new_occupied, i);
+        print_row(&old_occupied, i);
         if i == h / 2 {
             print!("  {} {:02}{}  ", render_id(new.id), new.amount, new.direction);
         } else if i == h / 2 + 1 {
@@ -237,7 +240,7 @@ fn print_move(vehicles: &BTreeMap<char, Vehicle>, old: &Node, new: &Move, w: usi
         } else {
             print!("         ");
         }
-        print_row(&old_occupied, i);
+        print_row(&new_occupied, i);
         println!();
     }
 }
@@ -396,8 +399,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!("Solution has {} moves.", solution.len());
 
         for i in 0..solution.len() - 1 {
-            let (new, old) = (solution.get(i).unwrap(), solution.get(i + 1).unwrap());
-            print_move(&vehicles, &old.node, new, w, h);
+            let (old, new) = (solution.get(i).unwrap(), solution.get(i + 1).unwrap());
+            print_move(&vehicles, old, &new.node, w, h);
 
             #[cfg(feature = "animation")]
             {
