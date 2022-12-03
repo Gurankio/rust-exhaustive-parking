@@ -1,7 +1,7 @@
-use std::io;
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+use std::io;
 use std::str::FromStr;
 #[cfg(feature = "animation")]
 use std::thread;
@@ -130,10 +130,17 @@ type Node = Vec<Vehicle>;
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Ord, PartialOrd)]
 struct Move {
-    node: Node,
+    starting: Node,
     id: char,
     direction: Direction,
     amount: usize,
+}
+
+#[derive(Debug, Copy, Clone)]
+struct Difficulty {
+    unique_children: usize,
+    sum_information: f64,
+    depth: usize,
 }
 
 fn parse_input() -> Result<(usize, usize, char, Direction, BTreeMap<char, Vehicle>), Box<dyn Error>> {
@@ -215,7 +222,7 @@ fn print_move(vehicles: &BTreeMap<char, Vehicle>, old: &Move, new: &Node, w: usi
     };
 
     let mut new_occupied = vec!['_'; w * h];
-    fill_table(&old.node, &mut new_occupied);
+    fill_table(&old.starting, &mut new_occupied);
 
     let mut old_occupied = vec!['_'; w * h];
     fill_table(new, &mut old_occupied);
@@ -234,7 +241,7 @@ fn print_move(vehicles: &BTreeMap<char, Vehicle>, old: &Move, new: &Node, w: usi
     for i in 0..h {
         print_row(&old_occupied, i);
         if i == h / 2 {
-            print!("  {} {:02}{}  ", render_id(new.id), new.amount, new.direction);
+            print!("  {} {:02}{}  ", render_id(old.id), old.amount, old.direction);
         } else if i == h / 2 + 1 {
             print!("   -->   ");
         } else {
@@ -243,6 +250,53 @@ fn print_move(vehicles: &BTreeMap<char, Vehicle>, old: &Move, new: &Node, w: usi
         print_row(&new_occupied, i);
         println!();
     }
+}
+
+fn estimate_difficulty(root: &Node, states: &BTreeMap<Node, Option<Move>>, solution: &[&Move]) -> Difficulty {
+    let mut inverted_states: BTreeMap<&Node, Vec<&Node>> = BTreeMap::new();
+    inverted_states.insert(root, vec![]);
+    for (node, parent) in states {
+        if let Some(parent) = parent {
+            if let Some(children) = inverted_states.get_mut(&parent.starting) {
+                children.push(node);
+            } else {
+                inverted_states.insert(&parent.starting, vec![node]);
+            }
+        }
+    }
+    let inverted_states = inverted_states;
+
+    let solution: BTreeSet<&Node> = solution.iter().map(|m| &m.starting).collect();
+
+    let mut extra = BTreeMap::new();
+    fn visit<'a>(node: &'a Node, depth: usize, states: &BTreeMap<&Node, Vec<&'a Node>>, solution: &BTreeSet<&Node>, extra: &mut BTreeMap<&'a Node, Difficulty>) {
+        if let Some(children) = states.get(&node) {
+            if !extra.contains_key(node) {
+                for child in children {
+                    visit(child, depth + 1, states, solution, extra);
+                }
+            }
+            let further_children: Vec<&&Node> = children.iter().filter(|child| extra.get(*child).unwrap().depth > depth).collect();
+            let this = f64::log2(further_children.len() as f64);
+            let sum_information = this + further_children.iter().map(|n| extra.get(*n).unwrap().sum_information).filter(|f| !f64::is_infinite(*f)).sum::<f64>();
+            let value = Difficulty { unique_children: further_children.len(), sum_information, depth };
+
+            // Debug Printing
+            #[cfg(feature = "dev")]
+            {
+                for i in 0..depth { print!(" ") }
+                print!("{:?}", value);
+                print!("{}", if solution.contains(node) { " solution" } else { "" });
+                println!();
+            }
+
+            extra.insert(node, value);
+        } else {
+            extra.insert(node, Difficulty { unique_children: 0, sum_information: 0.0, depth: 0 });
+        }
+    }
+    visit(root, 0, &inverted_states, &solution, &mut extra);
+    *extra.get(&root).unwrap()
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -334,7 +388,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                             let mut cloned = current.clone();
                             cloned[index].y = y;
                             let amount = current[index].y - cloned[index].y;
-                            if add_move(cloned, Move { node: current.clone(), id: vehicle.id, direction: Direction::Up, amount }) {
+                            if add_move(cloned, Move { starting: current.clone(), id: vehicle.id, direction: Direction::Up, amount }) {
                                 break 'solve;
                             }
                         } else {
@@ -346,7 +400,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                             let mut cloned = current.clone();
                             cloned[index].y = y - vehicle.length + 1;
                             let amount = cloned[index].y - current[index].y;
-                            if add_move(cloned, Move { node: current.clone(), id: vehicle.id, direction: Direction::Down, amount }) {
+                            if add_move(cloned, Move { starting: current.clone(), id: vehicle.id, direction: Direction::Down, amount }) {
                                 break 'solve;
                             }
                         } else {
@@ -360,7 +414,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                             let mut cloned = current.clone();
                             cloned[index].x = x;
                             let amount = current[index].x - cloned[index].x;
-                            if add_move(cloned,Move { node: current.clone(), id: vehicle.id, direction: Direction::Left, amount }) {
+                            if add_move(cloned, Move { starting: current.clone(), id: vehicle.id, direction: Direction::Left, amount }) {
                                 break 'solve;
                             }
                         } else {
@@ -372,7 +426,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                             let mut cloned = current.clone();
                             cloned[index].x = x - vehicle.length + 1;
                             let amount = cloned[index].x - current[index].x;
-                            if add_move(cloned, Move { node: current.clone(), id: vehicle.id, direction: Direction::Right, amount }) {
+                            if add_move(cloned, Move { starting: current.clone(), id: vehicle.id, direction: Direction::Right, amount }) {
                                 break 'solve;
                             }
                         } else {
@@ -390,17 +444,21 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         let mut current = &last;
         solution.push(current);
-        while let Some(Some(node)) = states.get(&current.node) {
+        while let Some(Some(node)) = states.get(&current.starting) {
             current = node;
             solution.push(current);
         }
         solution.reverse();
 
         println!("Solution has {} moves.", solution.len());
+        let diff = estimate_difficulty(&parsed, &states, &solution);
+        println!("Sum of all entropy: {:17.4}", diff.sum_information);
+        println!("That is, *more or less*, the number of times you should have launched a coin to get the right answer.");
 
+        #[cfg(feature = "steps")]
         for i in 0..solution.len() - 1 {
             let (old, new) = (solution.get(i).unwrap(), solution.get(i + 1).unwrap());
-            print_move(&vehicles, old, &new.node, w, h);
+            print_move(&vehicles, old, &new.starting, w, h);
 
             #[cfg(feature = "animation")]
             {
